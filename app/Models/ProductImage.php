@@ -40,6 +40,12 @@ class ProductImage extends Model
 
     public function getUrlAttribute(): string
     {
+        // Check if Cloudinary is properly configured
+        if (!config('cloudinary.cloud_name')) {
+            // Fallback to public disk or return a placeholder
+            return Storage::disk('public')->url($this->image_path);
+        }
+
         return Storage::disk('cloudinary')->url($this->image_path);
     }
 

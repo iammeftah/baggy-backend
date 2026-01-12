@@ -38,6 +38,15 @@ Route::get('/health', function () {
     ], 200);
 });
 
+Route::get('/test-cloudinary', function() {
+    return response()->json([
+        'cloud_name' => env('CLOUDINARY_CLOUD_NAME'),
+        'api_key' => env('CLOUDINARY_API_KEY') ? 'Set' : 'Not Set',
+        'api_secret' => env('CLOUDINARY_API_SECRET') ? 'Set' : 'Not Set',
+        'config' => config('filesystems.disks.cloudinary'),
+    ]);
+});
+
 // Homepage Routes (Public) - Single endpoint for all homepage data
 Route::prefix('homepage')->group(function () {
     Route::get('/', [HomepageController::class, 'index']);
