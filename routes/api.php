@@ -1,0 +1,143 @@
+<?php
+
+use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\Api\Auth\LoginController;
+use App\Http\Controllers\Api\Auth\RegisterController;
+use App\Http\Controllers\Api\Auth\LogoutController;
+use App\Http\Controllers\Api\Public\ProductController as PublicProductController;
+use App\Http\Controllers\Api\Public\CategoryController as PublicCategoryController;
+use App\Http\Controllers\Api\Public\PageController;
+use App\Http\Controllers\Api\Public\HomepageController;
+use App\Http\Controllers\Api\Customer\CartController;
+use App\Http\Controllers\Api\Customer\OrderController as CustomerOrderController;
+use App\Http\Controllers\Api\Customer\ProfileController;
+use App\Http\Controllers\Api\Customer\ChatbotController;
+use App\Http\Controllers\Api\Admin\DashboardController;
+use App\Http\Controllers\Api\Admin\ProductController as AdminProductController;
+use App\Http\Controllers\Api\Admin\CategoryController as AdminCategoryController;
+use App\Http\Controllers\Api\Admin\OrderController as AdminOrderController;
+use App\Http\Controllers\Api\Admin\ProductImageController;
+use App\Http\Controllers\Api\Admin\WebstoreInfoController;
+
+/*
+|--------------------------------------------------------------------------
+| API Routes
+|--------------------------------------------------------------------------
+*/
+
+// Authentication Routes
+Route::prefix('auth')->group(function () {
+    Route::post('/register', [RegisterController::class, 'register']);
+    Route::post('/login', [LoginController::class, 'login']);
+});
+
+// Homepage Routes (Public) - Single endpoint for all homepage data
+Route::prefix('homepage')->group(function () {
+    Route::get('/', [HomepageController::class, 'index']);
+    Route::get('/categories', [HomepageController::class, 'categories']);
+    Route::get('/latest-products', [HomepageController::class, 'latestProducts']);
+    Route::get('/webstore-info', [HomepageController::class, 'webstoreInfo']);
+});
+
+// Public Product & Category Routes - USE SLUG
+Route::prefix('products')->group(function () {
+    Route::get('/', [PublicProductController::class, 'index']);
+    Route::get('/{product:slug}', [PublicProductController::class, 'show']); // ✅ Use slug
+});
+
+Route::prefix('categories')->group(function () {
+    Route::get('/', [PublicCategoryController::class, 'index']);
+    Route::get('/{category:slug}', [PublicCategoryController::class, 'show']); // ✅ Use slug for public
+});
+
+// Public Pages
+Route::prefix('pages')->group(function () {
+    Route::get('/home', [PageController::class, 'home']);
+    Route::get('/about', [PageController::class, 'about']);
+});
+
+// Protected Routes
+Route::middleware(['auth:sanctum'])->group(function () {
+
+    Route::post('/auth/logout', [LogoutController::class, 'logout']);
+
+    // Customer Routes
+    Route::prefix('customer')->middleware(['role:customer'])->group(function () {
+
+        // Cart
+        Route::prefix('cart')->group(function () {
+            Route::get('/', [CartController::class, 'index']);
+            Route::post('/add', [CartController::class, 'add']);
+            Route::put('/update/{cartItem}', [CartController::class, 'update']);
+            Route::delete('/remove/{cartItem}', [CartController::class, 'remove']);
+            Route::delete('/clear', [CartController::class, 'clear']);
+        });
+
+        // Orders
+        Route::prefix('orders')->group(function () {
+            Route::get('/', [CustomerOrderController::class, 'index']);
+            Route::post('/', [CustomerOrderController::class, 'store']);
+            Route::get('/{orderNumber}', [CustomerOrderController::class, 'show']);
+        });
+
+        // Profile
+        Route::prefix('profile')->group(function () {
+            Route::get('/', [ProfileController::class, 'show']);
+            Route::put('/', [ProfileController::class, 'update']);
+            Route::put('/password', [ProfileController::class, 'changePassword']);
+        });
+
+        // Chatbot
+        Route::post('/chatbot', [ChatbotController::class, 'chat']);
+        Route::get('/chatbot/history', [ChatbotController::class, 'history']);
+        Route::delete('/chatbot/history', [ChatbotController::class, 'clearHistory']);
+    });
+
+    // Admin Routes - USE ID (default behavior)
+    Route::prefix('admin')->middleware(['role:admin'])->group(function () {
+
+        // Dashboard
+        Route::get('/dashboard', [DashboardController::class, 'index']);
+
+        // Products Management - ALL USE ID
+        Route::prefix('products')->group(function () {
+            Route::get('/', [AdminProductController::class, 'index']);
+            Route::get('/{product}', [AdminProductController::class, 'show']); // ✅ Use ID
+            Route::post('/', [AdminProductController::class, 'store']);
+            Route::put('/{product}', [AdminProductController::class, 'update']); // ✅ Use ID
+            Route::delete('/{product}', [AdminProductController::class, 'destroy']); // ✅ Use ID
+            Route::post('/{product}/toggle-status', [AdminProductController::class, 'toggleStatus']); // ✅ Use ID
+
+            // Product Images - USE ID
+            Route::post('/{product}/images', [ProductImageController::class, 'store']); // ✅ Use ID
+            Route::delete('/images/{image}', [ProductImageController::class, 'destroy']);
+            Route::put('/images/{image}/set-primary', [ProductImageController::class, 'setPrimary']);
+        });
+
+        // Categories Management - ALL USE ID
+        Route::prefix('categories')->group(function () {
+            Route::get('/', [AdminCategoryController::class, 'index']);
+            Route::get('/{category}', [AdminCategoryController::class, 'show']); // ✅ Use ID
+            Route::post('/', [AdminCategoryController::class, 'store']);
+            Route::put('/{category}', [AdminCategoryController::class, 'update']); // ✅ Use ID
+            Route::post('/{category}', [AdminCategoryController::class, 'update']); // ✅ Support POST for FormData
+            Route::delete('/{category}', [AdminCategoryController::class, 'destroy']); // ✅ Use ID
+        });
+
+        // Orders Management
+        Route::prefix('orders')->group(function () {
+            Route::get('/', [AdminOrderController::class, 'index']);
+            Route::get('/{orderNumber}', [AdminOrderController::class, 'show']);
+            Route::put('/{orderNumber}/status', [AdminOrderController::class, 'updateStatus']);
+        });
+
+        // Webstore Info Management
+        Route::prefix('webstore-info')->group(function () {
+            Route::get('/', [WebstoreInfoController::class, 'index']);
+            Route::put('/', [WebstoreInfoController::class, 'update']);
+            Route::post('/', [WebstoreInfoController::class, 'update']); // Support POST for FormData
+            Route::post('/logo', [WebstoreInfoController::class, 'uploadLogo']);
+            Route::delete('/logo', [WebstoreInfoController::class, 'deleteLogo']);
+        });
+    });
+});
