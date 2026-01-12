@@ -40,6 +40,11 @@ class ProductController extends Controller
     public function store(StoreProductRequest $request): JsonResponse
     {
         try {
+            // Check if Cloudinary is configured
+            if (!config('filesystems.disks.cloudinary.cloud_name')) {
+                throw new \Exception('Cloudinary is not configured properly');
+            }
+
             DB::beginTransaction();
 
             // Create the product
@@ -65,15 +70,24 @@ class ProductController extends Controller
                 ]);
 
                 foreach ($uploadedFiles as $index => $file) {
-                    // Store image in public disk
-                    $path = $file->store('products', 'cloudinary');
+                    try {
+                        // Store image in Cloudinary
+                        $path = $file->store('products', 'cloudinary');
 
-                    // Create image record
-                    $product->images()->create([
-                        'image_path' => $path,
-                        'is_primary' => $index === 0, // First image is primary
-                        'display_order' => $index + 1,
-                    ]);
+                        // Create image record
+                        $product->images()->create([
+                            'image_path' => $path,
+                            'is_primary' => $index === 0,
+                            'display_order' => $index + 1,
+                        ]);
+                    } catch (\Exception $imageError) {
+                        Log::error('Image upload failed', [
+                            'product_id' => $product->id,
+                            'image_index' => $index,
+                            'error' => $imageError->getMessage()
+                        ]);
+                        throw $imageError;
+                    }
                 }
 
                 Log::info('Images stored successfully', [
