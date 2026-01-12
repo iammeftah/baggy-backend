@@ -66,7 +66,7 @@ class ProductController extends Controller
 
                 foreach ($uploadedFiles as $index => $file) {
                     // Store image in public disk
-                    $path = $file->store('products', 'public');
+                    $path = $file->store('products', 'cloudinary');
 
                     // Create image record
                     $product->images()->create([
@@ -141,7 +141,7 @@ class ProductController extends Controller
                 $currentMaxOrder = $product->images()->max('display_order') ?? 0;
 
                 foreach ($uploadedFiles as $index => $file) {
-                    $path = $file->store('products', 'public');
+                    $path = $file->store('products', 'cloudinary');
 
                     $product->images()->create([
                         'image_path' => $path,

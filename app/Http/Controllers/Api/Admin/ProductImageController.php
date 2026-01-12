@@ -41,7 +41,7 @@ class ProductImageController extends Controller
             }
 
             // Store image in public disk
-            $path = $file->store('products', 'public');
+            $path = $file->store('products', 'cloudinary');
             Log::info('Image stored at path: ' . $path);
 
             // Determine display order

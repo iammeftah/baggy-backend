@@ -27,8 +27,8 @@ class ProductImage extends Model
         parent::boot();
 
         static::deleting(function ($image) {
-            if (Storage::disk('public')->exists($image->image_path)) {
-                Storage::disk('public')->delete($image->image_path);
+            if (Storage::disk('cloudinary')->exists($image->image_path)) {
+                Storage::disk('cloudinary')->delete($image->image_path);
             }
         });
     }
