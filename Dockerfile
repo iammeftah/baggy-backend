@@ -61,7 +61,8 @@ RUN composer install \
 # =========================
 RUN chown -R www-data:www-data \
     storage \
-    bootstrap/cache
+    bootstrap/cache \
+ && chmod -R 775 storage bootstrap/cache
 
 # =========================
 # Nginx config
@@ -71,7 +72,7 @@ COPY docker/nginx.conf /etc/nginx/nginx.conf
 # =========================
 # Expose port
 # =========================
-EXPOSE 80
+EXPOSE 8000
 
 # =========================
 # Start services

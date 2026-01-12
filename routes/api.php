@@ -31,6 +31,13 @@ Route::prefix('auth')->group(function () {
     Route::post('/login', [LoginController::class, 'login']);
 });
 
+Route::get('/health', function () {
+    return response()->json([
+        'status' => 'healthy',
+        'timestamp' => now()->toIso8601String()
+    ], 200);
+});
+
 // Homepage Routes (Public) - Single endpoint for all homepage data
 Route::prefix('homepage')->group(function () {
     Route::get('/', [HomepageController::class, 'index']);
