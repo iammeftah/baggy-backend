@@ -38,13 +38,9 @@ class ProductImage extends Model
         return $this->belongsTo(Product::class);
     }
 
-    /**
-     * Get the full URL of the image
-     * This should return: http://localhost:8000/storage/products/filename.jpg
-     */
     public function getUrlAttribute(): string
     {
-        return Storage::url($this->image_path);
+        return Storage::disk('cloudinary')->url($this->image_path);
     }
 
     public function setAsPrimary(): void
