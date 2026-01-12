@@ -40,13 +40,21 @@ class ProductImage extends Model
 
     public function getUrlAttribute(): string
     {
-        // Check if Cloudinary is properly configured
-        if (!config('cloudinary.cloud_name')) {
-            // Fallback to public disk or return a placeholder
-            return Storage::disk('public')->url($this->image_path);
+        // Check if Cloudinary is configured and working
+        try {
+            // Verify Cloudinary config exists
+            if (config('filesystems.disks.cloudinary.cloud.cloud_name')) {
+                return Storage::disk('cloudinary')->url($this->image_path);
+            }
+        } catch (\Exception $e) {
+            \Log::error('Cloudinary error in ProductImage', [
+                'error' => $e->getMessage(),
+                'path' => $this->image_path
+            ]);
         }
 
-        return Storage::disk('cloudinary')->url($this->image_path);
+        // Fallback to public disk
+        return Storage::disk('public')->url($this->image_path);
     }
 
     public function setAsPrimary(): void

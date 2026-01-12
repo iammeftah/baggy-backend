@@ -53,12 +53,26 @@ class Category extends Model
         return $this->hasMany(Product::class)->where('is_active', true);
     }
 
-    public function getImageUrlAttribute(): ?string
+   public function getImageUrlAttribute(): ?string
     {
         if (!$this->image_path) {
             return null;
         }
-        return Storage::url($this->image_path);
+
+        // Check if Cloudinary is configured and working
+        try {
+            if (config('filesystems.disks.cloudinary.cloud.cloud_name')) {
+                return Storage::disk('cloudinary')->url($this->image_path);
+            }
+        } catch (\Exception $e) {
+            \Log::error('Cloudinary error in Category', [
+                'error' => $e->getMessage(),
+                'path' => $this->image_path
+            ]);
+        }
+
+        // Fallback to public disk
+        return Storage::disk('public')->url($this->image_path);
     }
 
     // REMOVE this method - let it use ID by default
