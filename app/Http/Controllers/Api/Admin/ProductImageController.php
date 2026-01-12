@@ -86,8 +86,8 @@ class ProductImageController extends Controller
     {
         try {
             // Delete file from storage
-            if (Storage::disk('public')->exists($image->image_path)) {
-                Storage::disk('public')->delete($image->image_path);
+            if (Storage::disk('cloudinary')->exists($image->image_path)) {
+                Storage::disk('cloudinary')->delete($image->image_path);
             }
 
             $image->delete();
