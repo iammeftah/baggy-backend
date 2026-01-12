@@ -6,12 +6,19 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\UploadImageRequest;
 use App\Models\Product;
 use App\Models\ProductImage;
+use App\Services\ImageService;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Log;
 
 class ProductImageController extends Controller
 {
+    protected ImageService $imageService;
+
+    public function __construct(ImageService $imageService)
+    {
+        $this->imageService = $imageService;
+    }
+
     public function store(UploadImageRequest $request, Product $product): JsonResponse
     {
         Log::info('=== IMAGE UPLOAD STARTED ===');
@@ -40,22 +47,8 @@ class ProductImageController extends Controller
                 ], 400);
             }
 
-            // Store image in public disk
-            $path = $file->store('products', 'cloudinary');
-            Log::info('Image stored at path: ' . $path);
-
-            // Determine display order
-            $maxOrder = $product->images()->max('display_order') ?? 0;
-
-            // Check if this is the first image
-            $isFirstImage = $product->images()->count() === 0;
-
-            // Create image record
-            $image = $product->images()->create([
-                'image_path' => $path,
-                'is_primary' => $isFirstImage, // First image is automatically primary
-                'display_order' => $maxOrder + 1,
-            ]);
+            // Upload using ImageService
+            $image = $this->imageService->uploadProductImage($product, $file);
 
             Log::info('Image uploaded successfully! ID: ' . $image->id);
 
@@ -65,7 +58,7 @@ class ProductImageController extends Controller
                 'data' => [
                     'id' => $image->id,
                     'image_path' => $image->image_path,
-                    'image_url' => Storage::url($image->image_path),
+                    'image_url' => $image->url,
                     'is_primary' => $image->is_primary,
                     'display_order' => $image->display_order,
                 ],
@@ -85,12 +78,7 @@ class ProductImageController extends Controller
     public function destroy(ProductImage $image): JsonResponse
     {
         try {
-            // Delete file from storage
-            if (Storage::disk('cloudinary')->exists($image->image_path)) {
-                Storage::disk('cloudinary')->delete($image->image_path);
-            }
-
-            $image->delete();
+            $this->imageService->deleteProductImage($image);
 
             return response()->json([
                 'success' => true,
@@ -107,13 +95,7 @@ class ProductImageController extends Controller
     public function setPrimary(ProductImage $image): JsonResponse
     {
         try {
-            // Remove primary flag from other images
-            ProductImage::where('product_id', $image->product_id)
-                ->where('id', '!=', $image->id)
-                ->update(['is_primary' => false]);
-
-            // Set this image as primary
-            $image->update(['is_primary' => true]);
+            $this->imageService->setAsPrimary($image);
 
             return response()->json([
                 'success' => true,

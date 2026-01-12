@@ -50,9 +50,9 @@ Route::get('/test-cloudinary', function() {
 Route::get('/debug/cloudinary', function () {
     return response()->json([
         'cloudinary_disk_exists' => config('filesystems.disks.cloudinary') ? true : false,
-        'cloud_name' => config('filesystems.disks.cloudinary.cloud_name') ?? 'NOT SET',
-        'api_key_set' => config('filesystems.disks.cloudinary.api_key') ? 'YES' : 'NO',
-        'api_secret_set' => config('filesystems.disks.cloudinary.api_secret') ? 'YES' : 'NO',
+        'cloud_name' => env('CLOUDINARY_CLOUD_NAME') ?? 'NOT SET',
+        'api_key_set' => env('CLOUDINARY_API_KEY') ? 'YES' : 'NO',
+        'api_secret_set' => env('CLOUDINARY_API_SECRET') ? 'YES' : 'NO',
         'default_disk' => config('filesystems.default'),
         'env_vars' => [
             'CLOUDINARY_CLOUD_NAME' => env('CLOUDINARY_CLOUD_NAME') ? 'SET' : 'NOT SET',

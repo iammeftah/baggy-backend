@@ -5,13 +5,19 @@ namespace App\Services;
 use App\Models\Product;
 use App\Models\ProductImage;
 use Illuminate\Http\UploadedFile;
-use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Log;
 
 class ImageService
 {
+    protected CloudinaryService $cloudinary;
+
+    public function __construct(CloudinaryService $cloudinary)
+    {
+        $this->cloudinary = $cloudinary;
+    }
+
     /**
-     * Upload product image with WebP compression.
+     * Upload product image to Cloudinary.
      */
     public function uploadProductImage(Product $product, UploadedFile $file): ProductImage
     {
@@ -19,85 +25,29 @@ class ImageService
             throw new \Exception('Invalid image file.');
         }
 
-        $filename = time() . '_' . Str::random(10) . '.webp';
-        $path = "uploads/products/{$product->id}";
-        $fullPath = storage_path("app/public/{$path}");
+        // Upload to Cloudinary
+        $result = $this->cloudinary->upload(
+            $file,
+            'products/' . $product->id
+        );
 
-        if (!file_exists($fullPath)) {
-            mkdir($fullPath, 0755, true);
-        }
+        Log::info('Image uploaded to Cloudinary', [
+            'product_id' => $product->id,
+            'public_id' => $result['public_id'],
+            'url' => $result['secure_url']
+        ]);
 
-        $this->convertToWebP($file->getRealPath(), $fullPath . '/' . $filename);
-
-        $filePath = "{$path}/{$filename}";
         $displayOrder = $product->images()->max('display_order') ?? 0;
         $displayOrder += 1;
         $isPrimary = $product->images()->count() === 0;
 
         $productImage = $product->images()->create([
-            'image_path' => $filePath,
+            'image_path' => $result['public_id'],
             'is_primary' => $isPrimary,
             'display_order' => $displayOrder,
         ]);
 
         return $productImage;
-    }
-
-    protected function convertToWebP(string $source, string $destination, int $quality = 85): bool
-    {
-        $info = getimagesize($source);
-
-        if ($info === false) {
-            throw new \Exception('Could not read image file');
-        }
-
-        $image = false;
-
-        switch ($info['mime']) {
-            case 'image/jpeg':
-                $image = imagecreatefromjpeg($source);
-                break;
-            case 'image/png':
-                $image = imagecreatefrompng($source);
-                break;
-            case 'image/gif':
-                $image = imagecreatefromgif($source);
-                break;
-            case 'image/webp':
-                $image = imagecreatefromwebp($source);
-                break;
-            default:
-                throw new \Exception('Unsupported image type');
-        }
-
-        if ($image === false) {
-            throw new \Exception('Failed to create image resource');
-        }
-
-        $width = imagesx($image);
-        $height = imagesy($image);
-
-        if ($width > 1200) {
-            $newWidth = 1200;
-            $newHeight = (int) ($height * ($newWidth / $width));
-
-            $resizedImage = imagecreatetruecolor($newWidth, $newHeight);
-            imagealphablending($resizedImage, false);
-            imagesavealpha($resizedImage, true);
-
-            imagecopyresampled($resizedImage, $image, 0, 0, 0, 0, $newWidth, $newHeight, $width, $height);
-            imagedestroy($image);
-            $image = $resizedImage;
-        }
-
-        $result = imagewebp($image, $destination, $quality);
-        imagedestroy($image);
-
-        if (!$result) {
-            throw new \Exception('Failed to convert image to WebP');
-        }
-
-        return true;
     }
 
     protected function isValidImage(UploadedFile $file): bool
@@ -113,7 +63,7 @@ class ImageService
             try {
                 $uploadedImages[] = $this->uploadProductImage($product, $file);
             } catch (\Exception $e) {
-                \Log::error("Failed to upload image: " . $e->getMessage());
+                Log::error("Failed to upload image: " . $e->getMessage());
             }
         }
         return $uploadedImages;
@@ -124,8 +74,14 @@ class ImageService
         $wasPrimary = $image->is_primary;
         $productId = $image->product_id;
 
-        if (Storage::disk('public')->exists($image->image_path)) {
-            Storage::disk('public')->delete($image->image_path);
+        try {
+            // Delete from Cloudinary
+            $this->cloudinary->delete($image->image_path);
+        } catch (\Exception $e) {
+            Log::error('Failed to delete image from Cloudinary', [
+                'image_id' => $image->id,
+                'error' => $e->getMessage()
+            ]);
         }
 
         $deleted = $image->delete();

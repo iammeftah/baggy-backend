@@ -8,6 +8,9 @@ use App\Http\Requests\Admin\UpdateProductRequest;
 use App\Http\Resources\ProductDetailResource;
 use App\Http\Resources\ProductResource;
 use App\Models\Product;
+use App\Services\ProductService;
+use App\Services\ImageService;
+use App\Services\CloudinaryService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -15,24 +18,25 @@ use Illuminate\Support\Facades\Log;
 
 class ProductController extends Controller
 {
+    protected ProductService $productService;
+    protected ImageService $imageService;
+
+    public function __construct(ProductService $productService, ImageService $imageService)
+    {
+        $this->productService = $productService;
+        $this->imageService = $imageService;
+    }
+
     public function index(Request $request)
     {
-        $query = Product::with(['category', 'images']);
+        $filters = [
+            'search' => $request->search,
+            'status' => $request->status,
+            'category_id' => $request->category_id,
+            'per_page' => $request->get('per_page', 15),
+        ];
 
-        if ($request->has('search')) {
-            $query->where('name', 'like', '%' . $request->search . '%');
-        }
-
-        if ($request->has('status')) {
-            $isActive = $request->status === 'active';
-            $query->where('is_active', $isActive);
-        }
-
-        if ($request->has('category_id')) {
-            $query->where('category_id', $request->category_id);
-        }
-
-        $products = $query->latest()->paginate($request->get('per_page', 15));
+        $products = $this->productService->getAllProductsForAdmin($filters);
 
         return ProductResource::collection($products);
     }
@@ -40,23 +44,15 @@ class ProductController extends Controller
     public function store(StoreProductRequest $request): JsonResponse
     {
         try {
-            // Check if Cloudinary is configured
-            if (!config('filesystems.disks.cloudinary.cloud_name')) {
-                throw new \Exception('Cloudinary is not configured properly');
+            if (!CloudinaryService::isConfigured()) {
+                Log::error('Cloudinary configuration missing');
+                throw new \Exception('Cloudinary is not configured properly. Please check your environment variables.');
             }
 
             DB::beginTransaction();
 
-            // Create the product
-            $product = Product::create([
-                'category_id' => $request->category_id,
-                'name' => $request->name,
-                'description' => $request->description,
-                'specifications' => $request->specifications,
-                'price' => $request->price,
-                'stock_quantity' => $request->stock_quantity,
-                'is_active' => $request->get('is_active', true),
-            ]);
+            // Create the product using the service
+            $product = $this->productService->createProduct($request->validated());
 
             Log::info('Product created', ['product_id' => $product->id, 'name' => $product->name]);
 
@@ -69,26 +65,7 @@ class ProductController extends Controller
                     'images_count' => count($uploadedFiles)
                 ]);
 
-                foreach ($uploadedFiles as $index => $file) {
-                    try {
-                        // Store image in Cloudinary
-                        $path = $file->store('products', 'cloudinary');
-
-                        // Create image record
-                        $product->images()->create([
-                            'image_path' => $path,
-                            'is_primary' => $index === 0,
-                            'display_order' => $index + 1,
-                        ]);
-                    } catch (\Exception $imageError) {
-                        Log::error('Image upload failed', [
-                            'product_id' => $product->id,
-                            'image_index' => $index,
-                            'error' => $imageError->getMessage()
-                        ]);
-                        throw $imageError;
-                    }
-                }
+                $this->imageService->uploadMultipleProductImages($product, $uploadedFiles);
 
                 Log::info('Images stored successfully', [
                     'product_id' => $product->id,
@@ -124,7 +101,6 @@ class ProductController extends Controller
     public function show(Product $product)
     {
         $product->load(['category', 'images']);
-
         return new ProductDetailResource($product);
     }
 
@@ -133,15 +109,8 @@ class ProductController extends Controller
         try {
             DB::beginTransaction();
 
-            $product->update([
-                'category_id' => $request->category_id,
-                'name' => $request->name,
-                'description' => $request->description,
-                'specifications' => $request->specifications,
-                'price' => $request->price,
-                'stock_quantity' => $request->stock_quantity,
-                'is_active' => $request->get('is_active', $product->is_active),
-            ]);
+            // Update product using the service
+            $product = $this->productService->updateProduct($product, $request->validated());
 
             // Handle new image uploads
             if ($request->hasFile('images')) {
@@ -152,17 +121,7 @@ class ProductController extends Controller
                     'new_images_count' => count($uploadedFiles)
                 ]);
 
-                $currentMaxOrder = $product->images()->max('display_order') ?? 0;
-
-                foreach ($uploadedFiles as $index => $file) {
-                    $path = $file->store('products', 'cloudinary');
-
-                    $product->images()->create([
-                        'image_path' => $path,
-                        'is_primary' => false, // Don't change primary when updating
-                        'display_order' => $currentMaxOrder + $index + 1,
-                    ]);
-                }
+                $this->imageService->uploadMultipleProductImages($product, $uploadedFiles);
             }
 
             DB::commit();
@@ -192,7 +151,7 @@ class ProductController extends Controller
 
     public function destroy(Product $product): JsonResponse
     {
-        $product->delete();
+        $this->productService->deleteProduct($product);
 
         return response()->json([
             'success' => true,
@@ -202,9 +161,7 @@ class ProductController extends Controller
 
     public function toggleStatus(Product $product): JsonResponse
     {
-        $product->update([
-            'is_active' => !$product->is_active,
-        ]);
+        $product = $this->productService->toggleStatus($product);
 
         return response()->json([
             'success' => true,

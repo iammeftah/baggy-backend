@@ -2,9 +2,10 @@
 
 namespace App\Models;
 
+use App\Services\CloudinaryService;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Log;
 
 class ProductImage extends Model
 {
@@ -22,13 +23,21 @@ class ProductImage extends Model
         'display_order' => 'integer',
     ];
 
+    protected $appends = ['url'];
+
     protected static function boot()
     {
         parent::boot();
 
         static::deleting(function ($image) {
-            if (Storage::disk('cloudinary')->exists($image->image_path)) {
-                Storage::disk('cloudinary')->delete($image->image_path);
+            try {
+                app(CloudinaryService::class)->delete($image->image_path);
+            } catch (\Exception $e) {
+                Log::error('Failed to delete image from Cloudinary', [
+                    'image_id' => $image->id,
+                    'path' => $image->image_path,
+                    'error' => $e->getMessage()
+                ]);
             }
         });
     }
@@ -40,21 +49,19 @@ class ProductImage extends Model
 
     public function getUrlAttribute(): string
     {
-        // Check if Cloudinary is configured and working
         try {
-            // Verify Cloudinary config exists
-            if (config('filesystems.disks.cloudinary.cloud.cloud_name')) {
-                return Storage::disk('cloudinary')->url($this->image_path);
+            if (CloudinaryService::isConfigured()) {
+                $cloudinary = app(CloudinaryService::class);
+                return $cloudinary->url($this->image_path);
             }
         } catch (\Exception $e) {
-            \Log::error('Cloudinary error in ProductImage', [
+            Log::error('Cloudinary error in ProductImage', [
                 'error' => $e->getMessage(),
                 'path' => $this->image_path
             ]);
         }
 
-        // Fallback to public disk
-        return Storage::disk('public')->url($this->image_path);
+        return '/images/placeholder.jpg';
     }
 
     public function setAsPrimary(): void
