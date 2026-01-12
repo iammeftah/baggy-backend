@@ -47,6 +47,21 @@ Route::get('/test-cloudinary', function() {
     ]);
 });
 
+Route::get('/debug/cloudinary', function () {
+    return response()->json([
+        'cloudinary_disk_exists' => config('filesystems.disks.cloudinary') ? true : false,
+        'cloud_name' => config('filesystems.disks.cloudinary.cloud_name') ?? 'NOT SET',
+        'api_key_set' => config('filesystems.disks.cloudinary.api_key') ? 'YES' : 'NO',
+        'api_secret_set' => config('filesystems.disks.cloudinary.api_secret') ? 'YES' : 'NO',
+        'default_disk' => config('filesystems.default'),
+        'env_vars' => [
+            'CLOUDINARY_CLOUD_NAME' => env('CLOUDINARY_CLOUD_NAME') ? 'SET' : 'NOT SET',
+            'CLOUDINARY_API_KEY' => env('CLOUDINARY_API_KEY') ? 'SET' : 'NOT SET',
+            'CLOUDINARY_API_SECRET' => env('CLOUDINARY_API_SECRET') ? 'SET' : 'NOT SET',
+        ]
+    ]);
+});
+
 // Homepage Routes (Public) - Single endpoint for all homepage data
 Route::prefix('homepage')->group(function () {
     Route::get('/', [HomepageController::class, 'index']);
