@@ -5,11 +5,20 @@ namespace App\Http\Controllers\Api\Admin;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\OrderResource;
 use App\Models\Order;
+use App\Services\AdminActivityService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\DB;
 
 class OrderController extends Controller
 {
+    protected AdminActivityService $activityService;
+
+    public function __construct(AdminActivityService $activityService)
+    {
+        $this->activityService = $activityService;
+    }
+
     public function index(Request $request)
     {
         $query = Order::with(['user', 'items.product'])
@@ -38,14 +47,11 @@ class OrderController extends Controller
         return OrderResource::collection($orders);
     }
 
-
-    // app/Http/Controllers/Api/Admin/OrderController.php
-
     public function show(string $orderNumber)
     {
         $order = Order::with([
             'user',
-            'items.product.primaryImage',  // Load primaryImage, not images
+            'items.product.primaryImage',
             'items.product'
         ])
         ->where('order_number', $orderNumber)
@@ -54,25 +60,129 @@ class OrderController extends Controller
         return new OrderResource($order);
     }
 
+    /**
+     * Update order status with transaction security and activity logging
+     */
     public function updateStatus(Request $request, string $orderNumber): JsonResponse
     {
         $request->validate([
-            'status' => 'required|in:pending,shipping,delivered',
+            'status' => 'required|in:pending,shipping,delivered,cancelled,failed',
         ]);
 
+        $admin = auth()->user();
+
+        if (!$admin || $admin->role !== 'admin') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Unauthorized. Admin access required.',
+            ], 403);
+        }
+
+        DB::beginTransaction();
+
+        try {
+            $order = Order::where('order_number', $orderNumber)
+                ->lockForUpdate() // Prevent concurrent modifications
+                ->firstOrFail();
+
+            $oldStatus = $order->status;
+            $newStatus = $request->status;
+
+            // Prevent duplicate status updates
+            if ($oldStatus === $newStatus) {
+                DB::rollBack();
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Order is already in this status.',
+                ], 400);
+            }
+
+            // Business logic: Prevent certain status transitions
+            $invalidTransitions = [
+                'delivered' => ['pending', 'shipping'], // Can't go back from delivered
+                'cancelled' => ['delivered'], // Can't cancel delivered orders
+            ];
+
+            if (isset($invalidTransitions[$oldStatus]) &&
+                in_array($newStatus, $invalidTransitions[$oldStatus])) {
+                DB::rollBack();
+                return response()->json([
+                    'success' => false,
+                    'message' => "Cannot change status from {$oldStatus} to {$newStatus}.",
+                ], 400);
+            }
+
+            // Update order
+            $order->update([
+                'status' => $newStatus,
+                'updated_by_admin_id' => $admin->id,
+                'status_changed_at' => now(),
+            ]);
+
+            // Log the activity
+            $this->activityService->logOrderStatusChange($admin, $order, $oldStatus, $newStatus);
+
+            // If order is marked as delivered, log revenue collection
+            if ($newStatus === 'delivered') {
+                $this->activityService->logRevenueCollection($admin, $order);
+            }
+
+            DB::commit();
+
+            $order->load([
+                'user',
+                'items.product.primaryImage',
+                'items.product'
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Order status updated successfully',
+                'data' => new OrderResource($order),
+                'activity_logged' => true,
+                'updated_by' => [
+                    'id' => $admin->id,
+                    'name' => $admin->first_name . ' ' . $admin->last_name,
+                    'email' => $admin->email,
+                ],
+            ]);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to update order status: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Get order activity history
+     */
+    public function getActivityHistory(string $orderNumber): JsonResponse
+    {
         $order = Order::where('order_number', $orderNumber)->firstOrFail();
-        $order->update(['status' => $request->status]);
 
-        $order->load([
-            'user',
-            'items.product.primaryImage',
-            'items.product'
-        ]);
+        $activities = \App\Models\AdminActivity::forEntity('Order', $order->id);
 
         return response()->json([
             'success' => true,
-            'message' => 'Order status updated successfully',
-            'data' => new OrderResource($order),
+            'data' => $activities->map(function ($activity) {
+                return [
+                    'id' => $activity->id,
+                    'admin' => [
+                        'id' => $activity->admin->id,
+                        'name' => $activity->admin->first_name . ' ' . $activity->admin->last_name,
+                        'email' => $activity->admin->email,
+                    ],
+                    'action' => $activity->action,
+                    'description' => $activity->description,
+                    'metadata' => $activity->metadata,
+                    'created_at' => $activity->created_at->format('Y-m-d H:i:s'),
+                    'time_ago' => $activity->created_at->diffForHumans(),
+                ];
+            }),
         ]);
     }
 }

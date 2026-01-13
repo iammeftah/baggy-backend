@@ -50,35 +50,31 @@ class Category extends Model
 
         // Delete image when category is deleted
         static::deleting(function ($category) {
-            if ($category->image_path) {
-                try {
-                    // Try Cloudinary first (check nested cloud.cloud_name)
-                    if (env('CLOUDINARY_CLOUD_NAME')) {
-                        if (Storage::disk('cloudinary')->exists($category->image_path)) {
-                            Storage::disk('cloudinary')->delete($category->image_path);
-                            Log::info('Category image deleted from Cloudinary', [
-                                'category_id' => $category->id,
-                                'path' => $category->image_path
-                            ]);
-                        }
-                    }
-                    // Fallback to public disk
-                    elseif (Storage::disk('public')->exists($category->image_path)) {
-                        Storage::disk('public')->delete($category->image_path);
-                        Log::info('Category image deleted from public disk', [
-                            'category_id' => $category->id,
-                            'path' => $category->image_path
-                        ]);
-                    }
-                } catch (\Exception $e) {
-                    Log::error('Failed to delete category image', [
+        if ($category->image_path) {
+            try {
+                if (env('CLOUDINARY_CLOUD_NAME')) {
+                    $cloudinary = app(\App\Services\CloudinaryService::class);
+                    $cloudinary->delete($category->image_path);
+                    Log::info('Category image deleted from Cloudinary', [
                         'category_id' => $category->id,
-                        'path' => $category->image_path,
-                        'error' => $e->getMessage()
+                        'path' => $category->image_path
+                    ]);
+                } elseif (Storage::disk('public')->exists($category->image_path)) {
+                    Storage::disk('public')->delete($category->image_path);
+                    Log::info('Category image deleted from public disk', [
+                        'category_id' => $category->id,
+                        'path' => $category->image_path
                     ]);
                 }
+            } catch (\Exception $e) {
+                Log::error('Failed to delete category image', [
+                    'category_id' => $category->id,
+                    'path' => $category->image_path,
+                    'error' => $e->getMessage()
+                ]);
             }
-        });
+        }
+    });
     }
 
     /**
@@ -105,10 +101,6 @@ class Category extends Model
      * Accessors & Mutators
      */
 
-    /**
-     * Get the category image URL.
-     * Returns Cloudinary URL if configured, otherwise public disk URL.
-     */
     public function getImageUrlAttribute(): ?string
     {
         if (!$this->image_path) {
@@ -116,9 +108,10 @@ class Category extends Model
         }
 
         try {
-            // Check if Cloudinary is configured (nested under 'cloud')
+            // Check if Cloudinary is configured
             if (env('CLOUDINARY_CLOUD_NAME')) {
-                return Storage::disk('cloudinary')->url($this->image_path);
+                $cloudinary = app(\App\Services\CloudinaryService::class);
+                return $cloudinary->url($this->image_path);
             }
         } catch (\Exception $e) {
             Log::error('Cloudinary error in Category', [
@@ -129,12 +122,9 @@ class Category extends Model
         }
 
         // Fallback to public disk
-        if (Storage::disk('public')->exists($this->image_path)) {
-            return Storage::disk('public')->url($this->image_path);
-        }
-
-        // Return null if image doesn't exist anywhere
-        return null;
+        return Storage::disk('public')->exists($this->image_path)
+            ? Storage::disk('public')->url($this->image_path)
+            : null;
     }
 
     /**
@@ -198,15 +188,20 @@ class Category extends Model
             // Delete old image if exists
             if ($this->image_path) {
                 if (env('CLOUDINARY_CLOUD_NAME')) {
-                    Storage::disk('cloudinary')->delete($this->image_path);
+                    $cloudinary = app(\App\Services\CloudinaryService::class);
+                    $cloudinary->delete($this->image_path);
                 } else {
                     Storage::disk('public')->delete($this->image_path);
                 }
             }
 
             // Upload new image
-            $disk = env('CLOUDINARY_CLOUD_NAME') ? 'cloudinary' : 'public';
-            $path = $file->store('categories', $disk);
+            if (env('CLOUDINARY_CLOUD_NAME')) {
+                $cloudinary = app(\App\Services\CloudinaryService::class);
+                $path = $cloudinary->upload($file, 'categories');
+            } else {
+                $path = $file->store('categories', 'public');
+            }
 
             if ($path) {
                 $this->image_path = $path;
@@ -214,8 +209,7 @@ class Category extends Model
 
                 Log::info('Category image uploaded', [
                     'category_id' => $this->id,
-                    'path' => $path,
-                    'disk' => $disk
+                    'path' => $path
                 ]);
 
                 return true;
@@ -242,7 +236,8 @@ class Category extends Model
 
         try {
             if (env('CLOUDINARY_CLOUD_NAME')) {
-                Storage::disk('cloudinary')->delete($this->image_path);
+                $cloudinary = app(\App\Services\CloudinaryService::class);
+                $cloudinary->delete($this->image_path);
             } else {
                 Storage::disk('public')->delete($this->image_path);
             }

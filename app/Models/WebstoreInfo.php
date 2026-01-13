@@ -45,7 +45,8 @@ class WebstoreInfo extends Model
         if (!$this->logo_path) {
             return null;
         }
-        return Storage::url($this->logo_path);
+        // Explicitly use 'public' disk
+        return Storage::disk('public')->url($this->logo_path);
     }
 
     /**

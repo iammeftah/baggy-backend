@@ -19,6 +19,7 @@ use App\Http\Controllers\Api\Admin\CategoryController as AdminCategoryController
 use App\Http\Controllers\Api\Admin\OrderController as AdminOrderController;
 use App\Http\Controllers\Api\Admin\ProductImageController;
 use App\Http\Controllers\Api\Admin\WebstoreInfoController;
+use App\Http\Controllers\Api\Admin\AdminActivityController;
 
 /*
 |--------------------------------------------------------------------------
@@ -130,39 +131,49 @@ Route::middleware(['auth:sanctum'])->group(function () {
     // Admin Routes - USE ID (default behavior)
     Route::prefix('admin')->middleware(['role:admin'])->group(function () {
 
-        // Dashboard
+        // Dashboard with Enhanced Stats
         Route::get('/dashboard', [DashboardController::class, 'index']);
 
-        // Products Management - ALL USE ID
+        // Products Management with Activity Tracking
         Route::prefix('products')->group(function () {
             Route::get('/', [AdminProductController::class, 'index']);
-            Route::get('/{product}', [AdminProductController::class, 'show']); // ✅ Use ID
+            Route::get('/{product}', [AdminProductController::class, 'show']);
             Route::post('/', [AdminProductController::class, 'store']);
-            Route::put('/{product}', [AdminProductController::class, 'update']); // ✅ Use ID
-            Route::delete('/{product}', [AdminProductController::class, 'destroy']); // ✅ Use ID
-            Route::post('/{product}/toggle-status', [AdminProductController::class, 'toggleStatus']); // ✅ Use ID
+            Route::put('/{product}', [AdminProductController::class, 'update']);
+            Route::delete('/{product}', [AdminProductController::class, 'destroy']);
+            Route::post('/{product}/toggle-status', [AdminProductController::class, 'toggleStatus']);
+            Route::patch('/{product}/adjust-stock', [AdminProductController::class, 'adjustStock']); // NEW
 
-            // Product Images - USE ID
-            Route::post('/{product}/images', [ProductImageController::class, 'store']); // ✅ Use ID
+            // Product Images
+            Route::post('/{product}/images', [ProductImageController::class, 'store']);
             Route::delete('/images/{image}', [ProductImageController::class, 'destroy']);
             Route::put('/images/{image}/set-primary', [ProductImageController::class, 'setPrimary']);
         });
 
-        // Categories Management - ALL USE ID
+        // Categories Management
         Route::prefix('categories')->group(function () {
             Route::get('/', [AdminCategoryController::class, 'index']);
-            Route::get('/{category}', [AdminCategoryController::class, 'show']); // ✅ Use ID
+            Route::get('/{category}', [AdminCategoryController::class, 'show']);
             Route::post('/', [AdminCategoryController::class, 'store']);
-            Route::put('/{category}', [AdminCategoryController::class, 'update']); // ✅ Use ID
-            Route::post('/{category}', [AdminCategoryController::class, 'update']); // ✅ Support POST for FormData
-            Route::delete('/{category}', [AdminCategoryController::class, 'destroy']); // ✅ Use ID
+            Route::put('/{category}', [AdminCategoryController::class, 'update']);
+            Route::post('/{category}', [AdminCategoryController::class, 'update']); // Support POST for FormData
+            Route::delete('/{category}', [AdminCategoryController::class, 'destroy']);
         });
 
-        // Orders Management
+        // Orders Management with Activity Tracking
         Route::prefix('orders')->group(function () {
             Route::get('/', [AdminOrderController::class, 'index']);
             Route::get('/{orderNumber}', [AdminOrderController::class, 'show']);
-            Route::put('/{orderNumber}/status', [AdminOrderController::class, 'updateStatus']);
+            Route::patch('/{orderNumber}/status', [AdminOrderController::class, 'updateStatus']); // Changed to PATCH
+            Route::get('/{orderNumber}/activity-history', [AdminOrderController::class, 'getActivityHistory']); // NEW
+        });
+
+        // Admin Activity Logs - NEW
+        Route::prefix('activities')->group(function () {
+            Route::get('/', [AdminActivityController::class, 'index']);
+            Route::get('/summary', [AdminActivityController::class, 'summary']);
+            Route::get('/statistics', [AdminActivityController::class, 'statistics']);
+            Route::get('/entity/{entityType}/{entityId}', [AdminActivityController::class, 'entityTimeline']);
         });
 
         // Webstore Info Management

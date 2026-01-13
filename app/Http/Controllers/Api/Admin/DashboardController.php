@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Order;
 use App\Models\Product;
 use App\Models\User;
+use App\Models\AdminActivity;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
 use Carbon\Carbon;
@@ -53,10 +54,18 @@ class DashboardController extends Controller
             ->sum('total_amount');
         $dailyRevenueGrowth = $this->calculateGrowth($revenuesToday, $revenuesYesterday);
 
+        // NEW: Pending Revenue (Orders not yet delivered)
+        $pendingRevenue = Order::whereIn('status', ['pending', 'shipping'])
+            ->sum('total_amount');
+
         // Order Status Distribution
         $pendingOrders = Order::where('status', 'pending')->count();
         $shippingOrders = Order::where('status', 'shipping')->count();
         $deliveredOrders = Order::where('status', 'delivered')->count();
+
+        // NEW: Cancelled/Failed Orders
+        $cancelledOrders = Order::where('status', 'cancelled')->count();
+        $failedOrders = Order::where('status', 'failed')->count();
 
         // Product Stats
         $totalProducts = Product::count();
@@ -64,6 +73,11 @@ class DashboardController extends Controller
         $outOfStock = Product::where('stock_quantity', 0)->count();
         $lowStock = Product::where('stock_quantity', '>', 0)
             ->where('stock_quantity', '<=', 10)
+            ->count();
+
+        // NEW: Critical Low Stock (<=3 items)
+        $criticalStock = Product::where('stock_quantity', '>', 0)
+            ->where('stock_quantity', '<=', 3)
             ->count();
 
         // Customer Stats
@@ -78,6 +92,26 @@ class DashboardController extends Controller
 
         // Average Order Value
         $avgOrderValue = Order::where('status', 'delivered')->avg('total_amount') ?? 0;
+
+        // NEW: Conversion Metrics
+        $totalCustomersThisMonth = User::where('role', 'customer')
+            ->where('created_at', '>=', $thisMonthStart)
+            ->count();
+        $customersWithOrdersThisMonth = User::where('role', 'customer')
+            ->where('created_at', '>=', $thisMonthStart)
+            ->whereHas('orders')
+            ->count();
+        $conversionRate = $totalCustomersThisMonth > 0
+            ? ($customersWithOrdersThisMonth / $totalCustomersThisMonth) * 100
+            : 0;
+
+        // NEW: Repeat Customer Rate
+        $repeatCustomers = User::where('role', 'customer')
+            ->has('orders', '>=', 2)
+            ->count();
+        $repeatCustomerRate = $totalCustomers > 0
+            ? ($repeatCustomers / $totalCustomers) * 100
+            : 0;
 
         // ============================================================================
         // SALES TREND - Last 7 Days
@@ -132,10 +166,11 @@ class DashboardController extends Controller
                 'products.id',
                 'products.name',
                 'products.slug',
+                'products.stock_quantity',
                 DB::raw('SUM(order_items.quantity) as total_sold'),
                 DB::raw('SUM(order_items.subtotal) as total_revenue')
             )
-            ->groupBy('products.id', 'products.name', 'products.slug')
+            ->groupBy('products.id', 'products.name', 'products.slug', 'products.stock_quantity')
             ->orderBy('total_sold', 'desc')
             ->limit(5)
             ->get()
@@ -144,8 +179,10 @@ class DashboardController extends Controller
                     'id' => $item->id,
                     'name' => $item->name,
                     'slug' => $item->slug,
+                    'stock_quantity' => $item->stock_quantity,
                     'total_sold' => (int) $item->total_sold,
                     'total_revenue' => (float) number_format($item->total_revenue, 2, '.', ''),
+                    'needs_restock' => $item->stock_quantity <= 10,
                 ];
             });
 
@@ -160,6 +197,9 @@ class DashboardController extends Controller
                 ->where('created_at', '>=', Carbon::now()->subDays(30))
                 ->count(),
             'delivered' => Order::where('status', 'delivered')
+                ->where('created_at', '>=', Carbon::now()->subDays(30))
+                ->count(),
+            'cancelled' => Order::where('status', 'cancelled')
                 ->where('created_at', '>=', Carbon::now()->subDays(30))
                 ->count(),
         ];
@@ -184,6 +224,7 @@ class DashboardController extends Controller
                         'email' => $order->user->email,
                     ],
                     'created_at' => $order->created_at->format('Y-m-d H:i:s'),
+                    'time_ago' => $order->created_at->diffForHumans(),
                 ];
             });
 
@@ -214,6 +255,82 @@ class DashboardController extends Controller
             });
 
         // ============================================================================
+        // NEW: ACTIONABLE ALERTS
+        // ============================================================================
+        $alerts = [
+            'urgent_orders' => Order::where('status', 'pending')
+                ->where('created_at', '<', Carbon::now()->subHours(24))
+                ->count(),
+            'critical_stock' => Product::where('stock_quantity', '>', 0)
+                ->where('stock_quantity', '<=', 3)
+                ->count(),
+            'out_of_stock_popular' => DB::table('products')
+                ->join('order_items', 'products.id', '=', 'order_items.product_id')
+                ->join('orders', 'order_items.order_id', '=', 'orders.id')
+                ->where('products.stock_quantity', 0)
+                ->where('orders.created_at', '>=', Carbon::now()->subDays(30))
+                ->select('products.id')
+                ->groupBy('products.id')
+                ->havingRaw('SUM(order_items.quantity) > 0')
+                ->count(),
+        ];
+
+        // ============================================================================
+        // NEW: ADMIN ACTIVITY LOG (Last 24 hours)
+        // ============================================================================
+        $adminActivities = AdminActivity::with('admin')
+            ->where('created_at', '>=', Carbon::now()->subHours(24))
+            ->orderBy('created_at', 'desc')
+            ->limit(10)
+            ->get()
+            ->map(function ($activity) {
+                return [
+                    'id' => $activity->id,
+                    'admin' => [
+                        'id' => $activity->admin->id,
+                        'name' => $activity->admin->first_name . ' ' . $activity->admin->last_name,
+                        'email' => $activity->admin->email,
+                    ],
+                    'action' => $activity->action,
+                    'entity_type' => $activity->entity_type,
+                    'entity_id' => $activity->entity_id,
+                    'description' => $activity->description,
+                    'metadata' => $activity->metadata,
+                    'created_at' => $activity->created_at->format('Y-m-d H:i:s'),
+                    'time_ago' => $activity->created_at->diffForHumans(),
+                ];
+            });
+
+        // ============================================================================
+        // NEW: TOP CUSTOMERS (By Total Spent)
+        // ============================================================================
+        $topCustomers = DB::table('users')
+            ->join('orders', 'users.id', '=', 'orders.user_id')
+            ->where('users.role', 'customer')
+            ->where('orders.status', 'delivered')
+            ->select(
+                'users.id',
+                'users.first_name',
+                'users.last_name',
+                'users.email',
+                DB::raw('COUNT(orders.id) as total_orders'),
+                DB::raw('SUM(orders.total_amount) as total_spent')
+            )
+            ->groupBy('users.id', 'users.first_name', 'users.last_name', 'users.email')
+            ->orderBy('total_spent', 'desc')
+            ->limit(5)
+            ->get()
+            ->map(function ($customer) {
+                return [
+                    'id' => $customer->id,
+                    'name' => $customer->first_name . ' ' . $customer->last_name,
+                    'email' => $customer->email,
+                    'total_orders' => (int) $customer->total_orders,
+                    'total_spent' => (float) number_format($customer->total_spent, 2, '.', ''),
+                ];
+            });
+
+        // ============================================================================
         // RESPONSE
         // ============================================================================
         return response()->json([
@@ -232,20 +349,27 @@ class DashboardController extends Controller
                     'revenue_today' => (float) number_format($revenuesToday, 2, '.', ''),
                     'daily_revenue_growth' => $dailyRevenueGrowth,
 
+                    'pending_revenue' => (float) number_format($pendingRevenue, 2, '.', ''),
+
                     'pending_orders' => $pendingOrders,
                     'shipping_orders' => $shippingOrders,
                     'delivered_orders' => $deliveredOrders,
+                    'cancelled_orders' => $cancelledOrders,
+                    'failed_orders' => $failedOrders,
 
                     'total_products' => $totalProducts,
                     'active_products' => $activeProducts,
                     'out_of_stock' => $outOfStock,
                     'low_stock' => $lowStock,
+                    'critical_stock' => $criticalStock,
 
                     'total_customers' => $totalCustomers,
                     'new_customers_this_month' => $newCustomersThisMonth,
                     'customer_growth' => $customerGrowth,
 
                     'avg_order_value' => (float) number_format($avgOrderValue, 2, '.', ''),
+                    'conversion_rate' => (float) number_format($conversionRate, 2, '.', ''),
+                    'repeat_customer_rate' => (float) number_format($repeatCustomerRate, 2, '.', ''),
                 ],
 
                 // Trends
@@ -256,9 +380,14 @@ class DashboardController extends Controller
                 // Performance
                 'top_products' => $topProducts,
                 'category_performance' => $categoryPerformance,
+                'top_customers' => $topCustomers,
 
                 // Recent Activity
                 'recent_orders' => $recentOrders,
+                'admin_activities' => $adminActivities,
+
+                // Alerts
+                'alerts' => $alerts,
             ],
         ]);
     }

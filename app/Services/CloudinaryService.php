@@ -3,31 +3,60 @@
 namespace App\Services;
 
 use Cloudinary\Cloudinary;
-use Cloudinary\Configuration\Configuration;
 use Illuminate\Support\Facades\Log;
 
 class CloudinaryService
 {
-    private Cloudinary $cloudinary;
+    private ?Cloudinary $cloudinary = null;
+    private bool $isConfigured = false;
 
     public function __construct()
     {
-        Configuration::instance([
-            'cloud' => [
-                'cloud_name' => env('CLOUDINARY_CLOUD_NAME'),
-                'api_key' => env('CLOUDINARY_API_KEY'),
-                'api_secret' => env('CLOUDINARY_API_SECRET'),
-            ],
-            'url' => [
-                'secure' => true,
-            ],
-        ]);
+        // Get config values
+        $cloudName = config('services.cloudinary.cloud_name', env('CLOUDINARY_CLOUD_NAME'));
+        $apiKey = config('services.cloudinary.api_key', env('CLOUDINARY_API_KEY'));
+        $apiSecret = config('services.cloudinary.api_secret', env('CLOUDINARY_API_SECRET'));
 
-        $this->cloudinary = new Cloudinary();
+        // Check if all required config values are present
+        if (empty($cloudName) || empty($apiKey) || empty($apiSecret)) {
+            Log::warning('Cloudinary is not configured. Missing credentials.', [
+                'has_cloud_name' => !empty($cloudName),
+                'has_api_key' => !empty($apiKey),
+                'has_api_secret' => !empty($apiSecret),
+            ]);
+            $this->isConfigured = false;
+            return;
+        }
+
+        try {
+            // Try initializing with cloudinary:// URL format first
+            $cloudinaryUrl = sprintf(
+                'cloudinary://%s:%s@%s',
+                $apiKey,
+                $apiSecret,
+                $cloudName
+            );
+
+            $this->cloudinary = new Cloudinary($cloudinaryUrl);
+            $this->isConfigured = true;
+
+            Log::info('Cloudinary configured successfully', [
+                'cloud_name' => $cloudName
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Failed to configure Cloudinary', [
+                'error' => $e->getMessage()
+            ]);
+            $this->isConfigured = false;
+        }
     }
 
     public function upload($file, string $folder = 'products', array $options = []): array
     {
+        if (!$this->isConfigured || !$this->cloudinary) {
+            throw new \Exception('Cloudinary is not configured. Please check your environment variables.');
+        }
+
         try {
             $defaultOptions = [
                 'folder' => $folder,
@@ -71,6 +100,16 @@ class CloudinaryService
 
     public function delete(string $publicId): array
     {
+        if (!$this->isConfigured || !$this->cloudinary) {
+            Log::warning('Attempted to delete from Cloudinary but it is not configured', [
+                'public_id' => $publicId
+            ]);
+            return [
+                'success' => false,
+                'result' => 'not_configured',
+            ];
+        }
+
         try {
             $result = $this->cloudinary->uploadApi()->destroy($publicId);
 
@@ -96,6 +135,13 @@ class CloudinaryService
 
     public function url(string $publicId, array $transformations = []): string
     {
+        if (!$this->isConfigured || !$this->cloudinary) {
+            Log::warning('Attempted to generate Cloudinary URL but it is not configured', [
+                'public_id' => $publicId
+            ]);
+            return '';
+        }
+
         try {
             $url = $this->cloudinary->image($publicId)->toUrl();
             return $url;
@@ -111,8 +157,15 @@ class CloudinaryService
 
     public static function isConfigured(): bool
     {
-        return !empty(env('CLOUDINARY_CLOUD_NAME')) &&
-               !empty(env('CLOUDINARY_API_KEY')) &&
-               !empty(env('CLOUDINARY_API_SECRET'));
+        $cloudName = config('services.cloudinary.cloud_name', env('CLOUDINARY_CLOUD_NAME'));
+        $apiKey = config('services.cloudinary.api_key', env('CLOUDINARY_API_KEY'));
+        $apiSecret = config('services.cloudinary.api_secret', env('CLOUDINARY_API_SECRET'));
+
+        return !empty($cloudName) && !empty($apiKey) && !empty($apiSecret);
+    }
+
+    public function isReady(): bool
+    {
+        return $this->isConfigured;
     }
 }
