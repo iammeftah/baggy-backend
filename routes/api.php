@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\Public\ProductController as PublicProductController
 use App\Http\Controllers\Api\Public\CategoryController as PublicCategoryController;
 use App\Http\Controllers\Api\Public\PageController;
 use App\Http\Controllers\Api\Public\HomepageController;
+use App\Http\Controllers\Api\Public\FeaturedProductController;
 use App\Http\Controllers\Api\Customer\CartController;
 use App\Http\Controllers\Api\Customer\OrderController as CustomerOrderController;
 use App\Http\Controllers\Api\Customer\ProfileController;
@@ -69,6 +70,8 @@ Route::prefix('homepage')->group(function () {
     Route::get('/latest-products', [HomepageController::class, 'latestProducts']);
     Route::get('/webstore-info', [HomepageController::class, 'webstoreInfo']);
 });
+
+Route::get('/featured-products', [FeaturedProductController::class, 'index']);
 
 // Public Product & Category Routes - USE SLUG
 Route::prefix('products')->group(function () {
