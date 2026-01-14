@@ -18,9 +18,13 @@ class UpdateProductRequest extends FormRequest
             'description' => 'sometimes|required|string',
             'specifications' => 'nullable|string',
             'price' => 'sometimes|required|numeric|min:0',
+            'buying_price' => 'sometimes|required|numeric|min:0',
+            'selling_price' => 'sometimes|required|numeric|min:0|gte:buying_price',
             'category_id' => 'sometimes|required|exists:categories,id',
             'stock_quantity' => 'sometimes|required|integer|min:0',
             'is_active' => 'nullable|boolean',
+            'images' => 'nullable|array',
+            'images.*' => 'image|mimes:jpeg,png,jpg,gif,webp|max:5120',
         ];
     }
 
@@ -31,10 +35,17 @@ class UpdateProductRequest extends FormRequest
             'description.required' => 'Description is required',
             'price.required' => 'Price is required',
             'price.numeric' => 'Price must be a number',
+            'buying_price.required' => 'Buying price is required',
+            'buying_price.numeric' => 'Buying price must be a number',
+            'selling_price.required' => 'Selling price is required',
+            'selling_price.numeric' => 'Selling price must be a number',
+            'selling_price.gte' => 'Selling price must be greater than or equal to buying price',
             'category_id.required' => 'Category is required',
             'category_id.exists' => 'Selected category does not exist',
             'stock_quantity.required' => 'Stock quantity is required',
             'stock_quantity.integer' => 'Stock quantity must be a number',
+            'images.*.image' => 'Each file must be an image',
+            'images.*.max' => 'Each image must not exceed 5MB',
         ];
     }
 }

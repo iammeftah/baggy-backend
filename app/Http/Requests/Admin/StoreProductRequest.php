@@ -18,13 +18,13 @@ class StoreProductRequest extends FormRequest
             'description' => 'required|string',
             'specifications' => 'nullable|string',
             'price' => 'required|numeric|min:0',
+            'buying_price' => 'required|numeric|min:0',
+            'selling_price' => 'required|numeric|min:0|gte:buying_price',
             'category_id' => 'required|exists:categories,id',
             'stock_quantity' => 'required|integer|min:0',
             'is_active' => 'nullable|boolean',
-
-            // Image validation - multiple images allowed
-            'images' => 'nullable|array|max:5', // Maximum 5 images
-            'images.*' => 'image|mimes:jpeg,jpg,png,gif,webp|max:10240', // 10MB max per image
+            'images' => 'nullable|array',
+            'images.*' => 'image|mimes:jpeg,png,jpg,gif,webp|max:5120',
         ];
     }
 
@@ -32,23 +32,20 @@ class StoreProductRequest extends FormRequest
     {
         return [
             'name.required' => 'Product name is required',
-            'name.max' => 'Product name is too long',
             'description.required' => 'Description is required',
             'price.required' => 'Price is required',
             'price.numeric' => 'Price must be a number',
-            'price.min' => 'Price cannot be negative',
+            'buying_price.required' => 'Buying price is required',
+            'buying_price.numeric' => 'Buying price must be a number',
+            'selling_price.required' => 'Selling price is required',
+            'selling_price.numeric' => 'Selling price must be a number',
+            'selling_price.gte' => 'Selling price must be greater than or equal to buying price',
             'category_id.required' => 'Category is required',
             'category_id.exists' => 'Selected category does not exist',
             'stock_quantity.required' => 'Stock quantity is required',
             'stock_quantity.integer' => 'Stock quantity must be a number',
-            'stock_quantity.min' => 'Stock quantity cannot be negative',
-
-            // Image messages
-            'images.array' => 'Images must be sent as an array',
-            'images.max' => 'You can upload maximum 5 images',
             'images.*.image' => 'Each file must be an image',
-            'images.*.mimes' => 'Images must be JPEG, JPG, PNG, GIF, or WebP format',
-            'images.*.max' => 'Each image must not exceed 10MB',
+            'images.*.max' => 'Each image must not exceed 5MB',
         ];
     }
 }

@@ -17,12 +17,18 @@ class Product extends Model
         'description',
         'specifications',
         'price',
+        'buying_price',
+        'selling_price',
+        'profit_margin',
         'stock_quantity',
         'is_active',
     ];
 
     protected $casts = [
         'price' => 'decimal:2',
+        'buying_price' => 'decimal:2',
+        'selling_price' => 'decimal:2',
+        'profit_margin' => 'decimal:2',
         'stock_quantity' => 'integer',
         'is_active' => 'boolean',
     ];
@@ -35,13 +41,50 @@ class Product extends Model
             if (empty($product->slug)) {
                 $product->slug = static::generateUniqueSlug($product->name);
             }
+
+            // Auto-calculate profit margin
+            static::calculateProfitMargin($product);
         });
 
         static::updating(function ($product) {
             if ($product->isDirty('name') && empty($product->slug)) {
                 $product->slug = static::generateUniqueSlug($product->name, $product->id);
             }
+
+            // Recalculate profit margin if prices changed
+            if ($product->isDirty(['buying_price', 'selling_price'])) {
+                static::calculateProfitMargin($product);
+            }
         });
+    }
+
+    /**
+     * Calculate profit margin percentage
+     */
+    protected static function calculateProfitMargin($product): void
+    {
+        if ($product->buying_price > 0) {
+            $profit = $product->selling_price - $product->buying_price;
+            $product->profit_margin = round(($profit / $product->buying_price) * 100, 2);
+        } else {
+            $product->profit_margin = 0;
+        }
+    }
+
+    /**
+     * Get the profit amount (not percentage)
+     */
+    public function getProfitAttribute(): float
+    {
+        return round($this->selling_price - $this->buying_price, 2);
+    }
+
+    /**
+     * Get potential profit if all stock sold
+     */
+    public function getPotentialProfitAttribute(): float
+    {
+        return round($this->profit * $this->stock_quantity, 2);
     }
 
     protected static function generateUniqueSlug(string $name, ?int $ignoreId = null): string
@@ -140,6 +183,4 @@ class Product extends Model
     {
         $this->increment('stock_quantity', $quantity);
     }
-
-    // REMOVED getRouteKeyName() - we'll specify per route instead
 }
