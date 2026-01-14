@@ -33,18 +33,42 @@ class ProductController extends Controller
         $this->activityService = $activityService;
     }
 
-    public function index(Request $request)
+    /**
+     * Get paginated products with filters
+     */
+    public function index(Request $request): JsonResponse
     {
+        // Validate and sanitize input
+        $validated = $request->validate([
+            'search' => 'nullable|string|max:255',
+            'category_id' => 'nullable|integer|exists:categories,id',
+            'is_active' => 'nullable|boolean',
+            'in_stock' => 'nullable|boolean',
+            'sort' => 'nullable|in:price_asc,price_desc,newest,oldest,name_asc,name_desc',
+            'page' => 'nullable|integer|min:1',
+            'per_page' => 'nullable|integer|min:1|max:100',
+        ]);
+
         $filters = [
-            'search' => $request->search,
-            'status' => $request->status,
-            'category_id' => $request->category_id,
-            'per_page' => $request->get('per_page', 15),
+            'search' => $validated['search'] ?? null,
+            'category_id' => $validated['category_id'] ?? null,
+            'is_active' => $validated['is_active'] ?? null,
+            'in_stock' => $validated['in_stock'] ?? null,
+            'sort' => $validated['sort'] ?? 'newest',
+            'per_page' => $validated['per_page'] ?? 10,
         ];
 
         $products = $this->productService->getAllProductsForAdmin($filters);
 
-        return ProductResource::collection($products);
+        return response()->json([
+            'data' => ProductResource::collection($products->items()),
+            'current_page' => $products->currentPage(),
+            'last_page' => $products->lastPage(),
+            'per_page' => $products->perPage(),
+            'total' => $products->total(),
+            'from' => $products->firstItem(),
+            'to' => $products->lastItem(),
+        ]);
     }
 
     public function store(StoreProductRequest $request): JsonResponse
@@ -116,7 +140,10 @@ class ProductController extends Controller
     public function show(Product $product)
     {
         $product->load(['category', 'images']);
-        return new ProductDetailResource($product);
+        return response()->json([
+            'success' => true,
+            'data' => new ProductDetailResource($product),
+        ]);
     }
 
     public function update(UpdateProductRequest $request, Product $product): JsonResponse

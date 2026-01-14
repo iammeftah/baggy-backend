@@ -3,37 +3,54 @@
 namespace App\Services;
 
 use App\Models\Product;
-use App\Repositories\Contracts\ProductRepositoryInterface;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Pagination\LengthAwarePaginator;
-use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Str;
 
 class ProductService
 {
-    protected $productRepository;
-
-    public function __construct(ProductRepositoryInterface $productRepository)
+    /**
+     * Get all products for admin with filters and pagination
+     */
+    public function getAllProductsForAdmin(array $filters): LengthAwarePaginator
     {
-        $this->productRepository = $productRepository;
-    }
+        $query = Product::with(['category', 'images'])
+            ->withCount('images');
 
-    public function getProducts(array $filters = []): LengthAwarePaginator
-    {
-        $query = Product::query()->with(['category', 'images', 'primaryImage'])
-            ->where('is_active', true);
+        // Apply search filter
+        if (!empty($filters['search'])) {
+            $search = $filters['search'];
+            $query->where(function (Builder $q) use ($search) {
+                $q->where('name', 'like', "%{$search}%")
+                    ->orWhere('description', 'like', "%{$search}%")
+                    ->orWhere('specifications', 'like', "%{$search}%")
+                    ->orWhereHas('category', function (Builder $catQuery) use ($search) {
+                        $catQuery->where('name', 'like', "%{$search}%");
+                    });
+            });
+        }
 
-        if (isset($filters['category_id'])) {
+        // Apply category filter
+        if (!empty($filters['category_id'])) {
             $query->where('category_id', $filters['category_id']);
         }
 
-        if (isset($filters['search'])) {
-            $query->search($filters['search']);
+        // Apply status filter (is_active)
+        if (isset($filters['is_active']) && $filters['is_active'] !== null) {
+            $query->where('is_active', $filters['is_active']);
         }
 
-        if (isset($filters['in_stock']) && $filters['in_stock']) {
-            $query->inStock();
+        // Apply stock filter
+        if (isset($filters['in_stock'])) {
+            if ($filters['in_stock']) {
+                $query->where('stock_quantity', '>', 0);
+            } else {
+                $query->where('stock_quantity', '=', 0);
+            }
         }
 
-        $sortBy = $filters['sort'] ?? 'created_at';
+        // Apply sorting
+        $sortBy = $filters['sort'] ?? 'newest';
         switch ($sortBy) {
             case 'price_asc':
                 $query->orderBy('price', 'asc');
@@ -47,90 +64,140 @@ class ProductService
             case 'name_desc':
                 $query->orderBy('name', 'desc');
                 break;
+            case 'oldest':
+                $query->orderBy('created_at', 'asc');
+                break;
+            case 'newest':
             default:
                 $query->orderBy('created_at', 'desc');
+                break;
         }
 
-        return $query->paginate($filters['per_page'] ?? 15);
+        // Paginate results
+        $perPage = $filters['per_page'] ?? 10;
+        return $query->paginate($perPage);
     }
 
-    public function getProductBySlug(string $slug): ?Product
+    /**
+     * Get all products for public (customers)
+     */
+    public function getAllProducts(array $filters): LengthAwarePaginator
     {
-        return Product::where('slug', $slug)
-            ->with(['category', 'images', 'primaryImage'])
+        $query = Product::with(['category', 'images'])
             ->where('is_active', true)
-            ->firstOrFail();
-    }
+            ->where('stock_quantity', '>', 0);
 
-    public function getAllProductsForAdmin(array $filters = []): LengthAwarePaginator
-    {
-        $query = Product::query()->with(['category', 'images']);
-
-        if (isset($filters['status'])) {
-            $query->where('is_active', $filters['status'] === 'active');
+        // Apply search
+        if (!empty($filters['search'])) {
+            $search = $filters['search'];
+            $query->where(function (Builder $q) use ($search) {
+                $q->where('name', 'like', "%{$search}%")
+                    ->orWhere('description', 'like', "%{$search}%");
+            });
         }
 
-        if (isset($filters['search'])) {
-            $query->search($filters['search']);
+        // Apply category filter
+        if (!empty($filters['category_id'])) {
+            $query->where('category_id', $filters['category_id']);
         }
 
-        return $query->orderBy('created_at', 'desc')
-            ->paginate($filters['per_page'] ?? 15);
+        // Apply sorting
+        $sortBy = $filters['sort'] ?? 'newest';
+        switch ($sortBy) {
+            case 'price_asc':
+                $query->orderBy('price', 'asc');
+                break;
+            case 'price_desc':
+                $query->orderBy('price', 'desc');
+                break;
+            case 'name_asc':
+                $query->orderBy('name', 'asc');
+                break;
+            case 'name_desc':
+                $query->orderBy('name', 'desc');
+                break;
+            case 'newest':
+            default:
+                $query->orderBy('created_at', 'desc');
+                break;
+        }
+
+        $perPage = $filters['per_page'] ?? 12;
+        return $query->paginate($perPage);
     }
 
+    /**
+     * Create a new product
+     */
     public function createProduct(array $data): Product
     {
-        $product = Product::create([
-            'name' => $data['name'],
-            'slug' => $data['slug'] ?? null,
-            'description' => $data['description'],
-            'specifications' => $data['specifications'] ?? null,
-            'price' => $data['price'],
-            'category_id' => $data['category_id'] ?? null,
-            'stock_quantity' => $data['stock_quantity'] ?? 0,
-            'is_active' => $data['is_active'] ?? true,
-        ]);
+        $data['slug'] = Str::slug($data['name']);
 
-        return $product->load(['category', 'images']);
+        // Ensure unique slug
+        $originalSlug = $data['slug'];
+        $counter = 1;
+        while (Product::where('slug', $data['slug'])->exists()) {
+            $data['slug'] = $originalSlug . '-' . $counter;
+            $counter++;
+        }
+
+        return Product::create($data);
     }
 
+    /**
+     * Update a product
+     */
     public function updateProduct(Product $product, array $data): Product
     {
-        $product->update([
-            'name' => $data['name'] ?? $product->name,
-            'slug' => $data['slug'] ?? $product->slug,
-            'description' => $data['description'] ?? $product->description,
-            'specifications' => $data['specifications'] ?? $product->specifications,
-            'price' => $data['price'] ?? $product->price,
-            'category_id' => $data['category_id'] ?? $product->category_id,
-            'stock_quantity' => $data['stock_quantity'] ?? $product->stock_quantity,
-            'is_active' => $data['is_active'] ?? $product->is_active,
-        ]);
+        // Update slug if name changed
+        if (isset($data['name']) && $data['name'] !== $product->name) {
+            $data['slug'] = Str::slug($data['name']);
 
-        return $product->fresh(['category', 'images']);
+            // Ensure unique slug (excluding current product)
+            $originalSlug = $data['slug'];
+            $counter = 1;
+            while (Product::where('slug', $data['slug'])
+                ->where('id', '!=', $product->id)
+                ->exists()) {
+                $data['slug'] = $originalSlug . '-' . $counter;
+                $counter++;
+            }
+        }
+
+        $product->update($data);
+        return $product->fresh();
     }
 
+    /**
+     * Delete a product
+     */
     public function deleteProduct(Product $product): bool
     {
+        // Delete associated images
+        foreach ($product->images as $image) {
+            $image->delete();
+        }
+
         return $product->delete();
     }
 
+    /**
+     * Toggle product status
+     */
     public function toggleStatus(Product $product): Product
     {
-        $product->update([
-            'is_active' => !$product->is_active,
-        ]);
-
-        return $product;
+        $product->update(['is_active' => !$product->is_active]);
+        return $product->fresh();
     }
 
-    public function getFeaturedProducts(int $limit = 8): Collection
+    /**
+     * Get product by slug
+     */
+    public function getProductBySlug(string $slug): ?Product
     {
-        return Product::active()
-            ->inStock()
-            ->with(['category', 'primaryImage'])
-            ->latest()
-            ->limit($limit)
-            ->get();
+        return Product::with(['category', 'images'])
+            ->where('slug', $slug)
+            ->where('is_active', true)
+            ->firstOrFail();
     }
 }
