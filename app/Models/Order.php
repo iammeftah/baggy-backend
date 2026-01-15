@@ -23,6 +23,9 @@ class Order extends Model
         'shipping_city',
         'shipping_phone',
         'notes',
+        'is_returnable',
+        'has_return',
+        'return_deadline',
     ];
 
     /**
@@ -32,6 +35,9 @@ class Order extends Model
      */
     protected $casts = [
         'total_amount' => 'decimal:2',
+        'is_returnable' => 'boolean',
+        'has_return' => 'boolean',
+        'return_deadline' => 'datetime',
     ];
 
     /**
@@ -177,5 +183,81 @@ class Order extends Model
     public function getRouteKeyName()
     {
         return 'order_number';
+    }
+
+    /**
+     * Get the return for the order.
+     */
+    public function return()
+    {
+        return $this->hasOne(OrderReturn::class);
+    }
+
+    /**
+     * Check if order can be returned
+     * ✅ FIX: Added fallback logic for orders with null return_deadline
+     */
+    public function canBeReturned(): bool
+    {
+        // Can only return delivered orders
+        if ($this->status !== 'delivered') {
+            return false;
+        }
+
+        // Check if already has a return
+        if ($this->has_return) {
+            return false;
+        }
+
+        // Check if order is returnable
+        if (!$this->is_returnable) {
+            return false;
+        }
+
+        // ✅ FIX: Handle both set deadlines and orders delivered before feature was added
+        if (!$this->return_deadline) {
+            // Fallback: Orders without deadline should use updated_at + 30 days
+            // This handles orders delivered before the return feature was added
+            $estimatedDeliveryDate = $this->updated_at;
+            $fallbackDeadline = $estimatedDeliveryDate->copy()->addDays(30);
+
+            if (now()->greaterThan($fallbackDeadline)) {
+                return false;
+            }
+        } else {
+            // Use the explicitly set deadline
+            if (now()->greaterThan($this->return_deadline)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Set return deadline when order is delivered
+     * ✅ This is called when order status changes to 'delivered'
+     */
+    public function setReturnDeadline(int $days = 30): void
+    {
+        $this->return_deadline = now()->addDays($days);
+        $this->save();
+    }
+
+    /**
+     * Get days remaining for return
+     *
+     * @return int|null
+     */
+    public function getDaysRemainingForReturn(): ?int
+    {
+        if (!$this->return_deadline) {
+            // Use fallback logic
+            $estimatedDeliveryDate = $this->updated_at;
+            $fallbackDeadline = $estimatedDeliveryDate->copy()->addDays(30);
+            return now()->diffInDays($fallbackDeadline, false);
+        }
+
+        return now()->diffInDays($this->return_deadline, false);
     }
 }

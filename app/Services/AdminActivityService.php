@@ -8,6 +8,21 @@ use App\Models\User;
 class AdminActivityService
 {
     /**
+     * Generic log method for any admin activity
+     */
+    public function log(User $admin, string $action, string $entityType, int $entityId, string $description, array $metadata = []): void
+    {
+        AdminActivity::log(
+            admin: $admin,
+            action: $action,
+            entityType: $entityType,
+            entityId: $entityId,
+            description: $description,
+            metadata: $metadata
+        );
+    }
+
+    /**
      * Log order status change
      */
     public function logOrderStatusChange(User $admin, $order, string $oldStatus, string $newStatus): void
@@ -197,4 +212,5 @@ class AdminActivityService
                 ->sum(fn($activity) => $activity->metadata['amount'] ?? 0),
         ];
     }
+
 }

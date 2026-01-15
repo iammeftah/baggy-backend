@@ -12,8 +12,9 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware) {
-        // Add Sanctum middleware to API
+        // ✅ ADD CORS MIDDLEWARE FIRST - This is what's missing!
         $middleware->api(prepend: [
+            \Illuminate\Http\Middleware\HandleCors::class,
             \Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful::class,
         ]);
 
@@ -23,7 +24,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'update.last.login' => \App\Http\Middleware\UpdateLastLogin::class,
         ]);
 
-        // Configure CORS
+        // Configure CSRF
         $middleware->validateCsrfTokens(except: [
             'api/*',
         ]);

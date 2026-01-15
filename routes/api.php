@@ -20,6 +20,8 @@ use App\Http\Controllers\Api\Admin\OrderController as AdminOrderController;
 use App\Http\Controllers\Api\Admin\ProductImageController;
 use App\Http\Controllers\Api\Admin\WebstoreInfoController;
 use App\Http\Controllers\Api\Admin\AdminActivityController;
+use App\Http\Controllers\Api\Admin\OrderReturnController as AdminOrderReturnController;
+use App\Http\Controllers\Api\Customer\OrderReturnController as CustomerOrderReturnController;
 
 /*
 |--------------------------------------------------------------------------
@@ -126,6 +128,16 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('/chatbot', [ChatbotController::class, 'chat']);
         Route::get('/chatbot/history', [ChatbotController::class, 'history']);
         Route::delete('/chatbot/history', [ChatbotController::class, 'clearHistory']);
+
+
+        Route::prefix('returns')->group(function () {
+        Route::get('/', [CustomerOrderReturnController::class, 'index']);
+        Route::post('/', [CustomerOrderReturnController::class, 'store']);
+        Route::get('/{returnNumber}', [CustomerOrderReturnController::class, 'show']);
+        Route::post('/{returnNumber}/cancel', [CustomerOrderReturnController::class, 'cancel']);
+    });
+
+        Route::get('/orders/{orderNumber}/return-eligibility', [CustomerOrderReturnController::class, 'checkEligibility']);
     });
 
     // Admin Routes - USE ID (default behavior)
@@ -166,6 +178,16 @@ Route::middleware(['auth:sanctum'])->group(function () {
             Route::get('/{orderNumber}', [AdminOrderController::class, 'show']);
             Route::patch('/{orderNumber}/status', [AdminOrderController::class, 'updateStatus']); // Changed to PATCH
             Route::get('/{orderNumber}/activity-history', [AdminOrderController::class, 'getActivityHistory']); // NEW
+        });
+
+
+        Route::prefix('returns')->group(function () {
+            Route::get('/', [AdminOrderReturnController::class, 'index']);
+            Route::get('/statistics', [AdminOrderReturnController::class, 'statistics']);
+            Route::get('/{returnNumber}', [AdminOrderReturnController::class, 'show']);
+            Route::post('/{returnNumber}/approve', [AdminOrderReturnController::class, 'approve']);
+            Route::post('/{returnNumber}/reject', [AdminOrderReturnController::class, 'reject']);
+            Route::post('/{returnNumber}/complete', [AdminOrderReturnController::class, 'complete']);
         });
 
         // Admin Activity Logs - NEW

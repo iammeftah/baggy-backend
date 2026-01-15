@@ -112,20 +112,22 @@ class OrderController extends Controller
                 ], 400);
             }
 
-            // Update order
+            // Update order status only
             $order->update([
                 'status' => $newStatus,
-                'updated_by_admin_id' => $admin->id,
-                'status_changed_at' => now(),
             ]);
 
-            // Log the activity
-            $this->activityService->logOrderStatusChange($admin, $order, $oldStatus, $newStatus);
-
-            // If order is marked as delivered, log revenue collection
+            // ✅ FIX: If order is marked as delivered, log revenue collection AND set return deadline
+            // This happens ONCE, not twice like before
             if ($newStatus === 'delivered') {
                 $this->activityService->logRevenueCollection($admin, $order);
+                $order->setReturnDeadline(7); // 7 days return policy
             }
+
+            // Log the status change activity
+            $this->activityService->logOrderStatusChange($admin, $order, $oldStatus, $newStatus);
+
+            // ❌ REMOVED DUPLICATE BLOCK - revenue logging was happening twice!
 
             DB::commit();
 
