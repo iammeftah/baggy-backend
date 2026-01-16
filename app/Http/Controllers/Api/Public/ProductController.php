@@ -45,9 +45,18 @@ class ProductController extends Controller
                 $query->orderBy('created_at', 'desc');
         }
 
-        $products = $query->paginate($request->get('per_page', 15));
+        $products = $query->paginate($request->get('per_page', 12));
 
-        return ProductResource::collection($products);
+        return ProductResource::collection($products)->additional([
+            'meta' => [
+                'current_page' => $products->currentPage(),
+                'last_page' => $products->lastPage(),
+                'per_page' => $products->perPage(),
+                'total' => $products->total(),
+                'from' => $products->firstItem(),
+                'to' => $products->lastItem(),
+            ]
+        ]);
     }
 
     public function show(string $slug)
